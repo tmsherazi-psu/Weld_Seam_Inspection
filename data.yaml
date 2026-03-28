@@ -1,0 +1,124 @@
+# ==============================================================================
+# WELD SEAM INSTANCE SEGMENTATION DATASET CONFIGURATION
+# Aligned with: "A CPU-Only Image Preprocessing and Structural Evaluation 
+#                Framework for Weld Seam Inspection on Legacy Industrial PCs"
+#                (Manuscript B60671-023)
+# ==============================================================================
+
+# DATASET ROOT PATH
+# Update this path to match your environment
+# Google Colab: /content/drive/MyDrive/WeldDataset
+# Local: ./WeldDataset
+path: /content/drive/MyDrive/WeldDataset
+
+# DATA SPLITS (Sec 3.a: Dataset Construction)
+# Training: 300 annotated images (with internal 9:1 validation split)
+# Evaluation: 50 independent images (strictly disjoint from training)
+train: images/train
+val: images/val
+test: images/test
+
+# TASK CONFIGURATION (Sec 2.a.iii, 3.a)
+# Binary instance segmentation: weld seam vs. background
+nc: 1
+names:
+  0: weld_seam
+
+# IMAGE SPECIFICATIONS (Sec 2.a.iv, 3.b, Table 1)
+# - Input: Single-channel PNG grayscale → converted to 3-channel RGB for YOLO
+# - Resizing: LetterBox adaptive to 640x640 preserving aspect ratio
+# - Normalization: ImageNet stats for pretrained YOLO backbone
+image_config:
+  input_format: grayscale_png_to_rgb
+  resize_method: letterbox
+  target_size: [640, 640]
+  normalization_mean: [0.485, 0.456, 0.406]
+  normalization_std: [0.229, 0.224, 0.225]
+
+# ANNOTATION FORMAT (Sec 3.a)
+# Original: JSON (labelme) → Converted: YOLO segmentation text format
+# Format per image: <class> <x1> <y1> <x2> <y2> ... <xn> <yn>
+# - Coordinates normalized to [0, 1]
+# - Polygon points defining weld seam mask boundary
+annotation_config:
+  source_format: json_labelme
+  conversion_tool: labelme2yolo
+  target_format: yolo_segmentation
+  polygon_min_points: 3
+
+# TRAINING HYPERPARAMETERS (Sec 3.b, Table 1)
+training:
+  seed: 42
+  optimizer: AdamW
+  lr0: 0.001
+  batch: 8
+  epochs: 300
+  patience: 50
+  metric_monitor: mAP50-95
+  warmup_epochs: 3
+
+# AUGMENTATION POLICY (Sec 3.b: Shape-Preserving)
+# Disable geometric transforms that distort weld structure continuity
+augmentations:
+  mosaic: 0.0
+  rotation: 0.0
+  flipud: 0.0
+  fliplr: 0.0
+  scale: 0.0
+  translate: 0.0
+  hsv_h: 0.015
+  hsv_s: 0.7
+  hsv_v: 0.4
+  brightness: 0.3
+  contrast: 0.3
+
+# EVALUATION PROTOCOL (Sec 2.a.iv, 2.c, 2.d)
+evaluation:
+  iou_threshold: 0.5
+  coordinate_system: unified
+  metric_primary: TIM
+  metric_secondary: [CI, FI]
+  outlier_criterion: -0.20
+  bootstrap_iterations: 1000
+  epsilon: 1.0e-6
+  min_component_area: 50
+
+# DEPLOYMENT CONSTRAINTS (Sec 3.d, 3.e)
+deployment:
+  hardware_target: Intel_i5-7500
+  latency_budget_ms: 45
+  preprocessing_overhead_ms: 2
+  inference_overhead_ms: 43
+  memory_limit_gb: 16
+  framework: Ultralytics_YOLO11
+
+# PREPROCESSING STRATEGIES FOR COMPARISON (Sec 2.a.ii, 3.c)
+preprocessing:
+  baseline:
+    enabled: true
+    description: "Raw-image path: resizing, standardization, normalization only"
+  histogram_equalization:
+    enabled: true
+    description: "Global HE: reproducible global-mapping enhancement baseline"
+  gamma_correction:
+    enabled: true
+    gamma: 0.8
+    description: "Power-law mapping for global nonlinear enhancement"
+  clahe:
+    enabled: true
+    clip_limit: 2.0
+    tile_grid: [8, 8]
+    description: "Contrast-limited adaptive histogram equalization (local adaptive)"
+  ablation_clahe_bilateral:
+    enabled: false
+    description: "CLAHE + bilateral filtering for noise-amplification trade-off study"
+
+# STATISTICAL VALIDATION SETTINGS (Sec 2.d)
+statistics:
+  primary_hypothesis: "CLAHE improves TIM relative to Baseline"
+  test_method: wilcoxon_signed_rank
+  p_value_type: two_sided
+  significance_threshold: 0.05
+  effect_size_metric: rank_biserial_correlation
+  bootstrap_confidence_level: 0.95
+  outlier_handling: exclude_robustness_only
